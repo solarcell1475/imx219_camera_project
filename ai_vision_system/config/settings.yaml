@@ -1,0 +1,48 @@
+# YOLO AI Vision System Configuration
+# ===================================
+
+# Model Configuration
+model:
+  version: v11  # YOLO version: v8, v9, v10, v11
+  size: n       # Model size: n (nano), s (small), m (medium), l (large), x (xlarge), b (base/balanced)
+                # Using 'n' (nano) for optimal performance on Jetson Orin Nano Super
+
+# Camera Configuration
+resolution:
+  width: 1280   # Display resolution width
+  height: 720   # Display resolution height
+  fps: 30       # Target camera FPS
+
+# Inference Configuration (optimized for YOLO11 on Jetson)
+inference_resolution: [640, 640]  # [width, height] - Square input recommended for YOLO11
+                                  # Bounding boxes are automatically scaled back to display resolution
+
+# Detection Configuration
+confidence_threshold: 0.25  # Confidence threshold (0.0 - 1.0) - Balanced for accuracy/performance
+iou_threshold: 0.45         # IoU threshold for NMS
+
+# Device Configuration
+device: cuda  # cuda or cpu - Will auto-fallback to cpu if CUDA unavailable
+
+# Display Configuration
+view_mode: side_by_side  # side_by_side, overlay, split, single_0, single_1
+show_detections: true
+show_fps: true
+show_metrics: true
+
+# Performance Configuration
+target_fps: 25.0  # Target FPS for performance balancing
+use_parallel_inference: true  # Use parallel threading for dual camera inference
+
+# Monitoring Configuration
+monitoring:
+  update_interval: 1.0  # Dashboard update interval (seconds)
+  log_performance: true
+  log_detections: false
+
+# Alert Thresholds
+alerts:
+  fps_min: 15.0
+  memory_max_percent: 85.0
+  gpu_temp_max_c: 80.0
+  inference_time_max_ms: 100.0

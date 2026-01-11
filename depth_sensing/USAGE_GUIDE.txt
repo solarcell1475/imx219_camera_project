@@ -1,0 +1,301 @@
+================================================================================
+                    IMX219 DEPTH SENSING - QUICK START GUIDE
+================================================================================
+
+📁 Location: /home/jetson/Downloads/IMX219_Camera_Project/depth_sensing/
+
+================================================================================
+                            QUICK START (3 STEPS)
+================================================================================
+
+STEP 1: CAPTURE CALIBRATION IMAGES (5-10 minutes)
+--------------------------------------------------
+cd /home/jetson/Downloads/IMX219_Camera_Project/depth_sensing
+python3 1_capture_calibration_images.py
+
+→ Hold checkerboard in front of cameras
+→ Press SPACE when pattern detected (green ✓)
+→ Capture 20-30 images from different angles
+→ Press Q when done
+
+STEP 2: CALIBRATE CAMERAS (2-3 minutes)
+----------------------------------------
+python3 2_calibrate_stereo_cameras.py
+
+→ Processes images automatically
+→ Generates stereo_calibration.npz
+→ Creates calibration_report.txt
+
+STEP 3: RUN DEPTH SENSING
+--------------------------
+python3 3_depth_sensing.py
+
+→ Q = Quit
+→ S = Save frame
+→ D = Toggle display mode
+→ C = Change color map
+→ Hover mouse to see depth
+
+================================================================================
+                              REQUIREMENTS
+================================================================================
+
+HARDWARE:
+  ✓ Jetson platform (Orin Nano, Xavier NX, etc.)
+  ✓ IMX219 stereo cameras connected and detected
+  ✓ Checkerboard pattern (9x6 internal corners, 25mm squares)
+
+SOFTWARE:
+  ✓ Python 3
+  ✓ OpenCV (python3-opencv)
+  ✓ NumPy (python3-numpy)
+
+CHECK CAMERAS:
+  ls /dev/video*
+  # Should show /dev/video0 and /dev/video1
+
+================================================================================
+                         CALIBRATION PATTERN
+================================================================================
+
+Download checkerboard pattern:
+  https://markhedleyjones.com/projects/calibration-checkerboard-collection
+
+Pattern specifications:
+  • 9x6 internal corners (10x7 squares)
+  • 25mm square size
+  • Print on rigid, flat surface (foam board recommended)
+  • Ensure pattern is flat (no warping)
+
+Calibration tips:
+  • Use good lighting
+  • Hold pattern steady (avoid motion blur)
+  • Capture images from various positions and angles
+  • Cover entire field of view
+  • Keep pattern visible in both cameras
+
+================================================================================
+                            COMMON COMMANDS
+================================================================================
+
+BASIC USAGE:
+  python3 3_depth_sensing.py
+
+HIGH RESOLUTION (slower):
+  python3 3_depth_sensing.py --resolution 1920x1080
+
+LOW RESOLUTION (faster):
+  python3 3_depth_sensing.py --resolution 640x480
+
+FASTER ALGORITHM:
+  python3 3_depth_sensing.py --algorithm bm
+
+SAVE VIDEO:
+  python3 3_depth_sensing.py --save-video output.mp4
+
+SHOW FPS:
+  python3 3_depth_sensing.py --fps
+
+COMBINED OPTIONS:
+  python3 3_depth_sensing.py --resolution 1280x720 --algorithm sgbm --fps
+
+VISUALIZE SAVED DEPTH:
+  python3 4_visualize_saved_depth.py depth_map_*.npy
+
+================================================================================
+                           TROUBLESHOOTING
+================================================================================
+
+CAMERAS NOT DETECTED:
+  Problem: No /dev/video0 or /dev/video1
+  Solution:
+    cd /home/jetson/Downloads/IMX219_Camera_Project
+    sudo ./activate_imx219_cameras.sh
+    sudo reboot
+
+PATTERN NOT FOUND DURING CALIBRATION:
+  Problem: Checkerboard not detected
+  Solutions:
+    • Check pattern size (9x6 internal corners)
+    • Improve lighting
+    • Hold pattern steady (reduce motion blur)
+    • Ensure pattern is flat
+    • Move closer to cameras
+
+HIGH CALIBRATION ERROR:
+  Problem: Reprojection error > 1.0 pixel
+  Solutions:
+    • Capture more calibration images (30+)
+    • Use better lighting
+    • Ensure checkerboard is perfectly flat
+    • Vary positions and angles more
+    • Recalibrate
+
+POOR DEPTH QUALITY:
+  Problem: Noisy or invalid depth values
+  Solutions:
+    • Recalibrate with more/better images
+    • Add lighting to scene
+    • Add texture to surfaces
+    • Use SGBM algorithm (default)
+    • Avoid smooth/reflective surfaces
+
+LOW FPS:
+  Problem: Slow frame rate
+  Solutions:
+    • Reduce resolution: --resolution 640x480
+    • Use BM algorithm: --algorithm bm
+    • Close other applications
+
+================================================================================
+                            FILE STRUCTURE
+================================================================================
+
+depth_sensing/
+├── 1_capture_calibration_images.py    Step 1: Capture images
+├── 2_calibrate_stereo_cameras.py      Step 2: Calibrate
+├── 3_depth_sensing.py                 Step 3: Run depth sensing
+├── 4_visualize_saved_depth.py         Step 4: Visualize saved data
+├── README.md                          Complete documentation
+├── USAGE_GUIDE.txt                    This file
+├── calibration_images/                Captured calibration images
+│   ├── left/                         Left camera images
+│   └── right/                        Right camera images
+├── stereo_calibration.npz            Calibration parameters
+├── calibration_report.txt            Calibration quality report
+└── depth_*.jpg / depth_map_*.npy     Saved depth data
+
+================================================================================
+                         DEPTH SENSING CONTROLS
+================================================================================
+
+KEYBOARD:
+  Q         Quit application
+  S         Save current frame (jpg + npy)
+  D         Toggle display mode (stereo/depth only)
+  C         Cycle color maps (JET/TURBO/HOT/RAINBOW/VIRIDIS)
+
+MOUSE:
+  Hover     Show depth at cursor position
+
+================================================================================
+                           DEPTH RANGE
+================================================================================
+
+Typical depth sensing range for IMX219-83:
+  Minimum:   ~0.3 meters (closer objects may not match)
+  Maximum:   ~5-10 meters (depends on lighting and texture)
+  Optimal:   0.5 - 3 meters (best accuracy)
+
+Factors affecting range:
+  ✓ Lighting (better lighting = longer range)
+  ✓ Surface texture (textured surfaces = better matching)
+  ✓ Baseline (60mm for IMX219-83)
+  ✓ Resolution (higher resolution = better accuracy)
+
+================================================================================
+                          COLOR MAP GUIDE
+================================================================================
+
+JET (default):
+  Blue = Far, Green = Medium, Red = Near
+
+TURBO:
+  Similar to JET but more perceptually uniform
+
+HOT:
+  Black → Red → Yellow → White (near to far)
+
+RAINBOW:
+  Full spectrum visualization
+
+VIRIDIS:
+  Perceptually uniform, colorblind-friendly
+
+Press C to cycle through color maps during runtime.
+
+================================================================================
+                            PERFORMANCE
+================================================================================
+
+Expected FPS (on Jetson Orin Nano):
+
+Resolution    SGBM (quality)    BM (speed)
+640x480       ~25 FPS           ~40 FPS
+1280x720      ~15 FPS           ~30 FPS
+1920x1080     ~8 FPS            ~15 FPS
+
+Tip: Start with 1280x720 + SGBM for balanced quality/speed
+
+================================================================================
+                            APPLICATIONS
+================================================================================
+
+✓ Robotics - Obstacle detection, navigation, manipulation
+✓ Autonomous Vehicles - Distance measurement, collision avoidance
+✓ Computer Vision - 3D reconstruction, scene understanding
+✓ SLAM - Localization, mapping, visual odometry
+✓ AR/VR - Spatial mapping, environment understanding
+✓ Industrial - Quality control, dimensional measurement
+
+================================================================================
+                           USEFUL LINKS
+================================================================================
+
+OpenCV Stereo Vision:
+  https://docs.opencv.org/master/dd/d53/tutorial_py_depthmap.html
+
+Waveshare IMX219-83:
+  https://www.waveshare.net/wiki/IMX219-83_Stereo_Camera
+
+Camera Calibration:
+  https://docs.opencv.org/master/dc/dbb/tutorial_py_calibration.html
+
+Checkerboard Generator:
+  https://markhedleyjones.com/projects/calibration-checkerboard-collection
+
+================================================================================
+                            SUPPORT
+================================================================================
+
+For detailed documentation:
+  cat README.md
+
+Check camera status:
+  ls /dev/video*
+  v4l2-ctl --list-devices
+
+Check calibration quality:
+  cat calibration_report.txt
+
+View kernel messages:
+  dmesg | grep imx219
+
+Test cameras:
+  cd /home/jetson/Downloads/IMX219_Camera_Project
+  ./test_imx219_cameras.sh
+
+================================================================================
+                           QUICK EXAMPLES
+================================================================================
+
+EXAMPLE 1: Basic depth sensing
+  python3 3_depth_sensing.py
+
+EXAMPLE 2: High quality, record video
+  python3 3_depth_sensing.py --resolution 1920x1080 --save-video output.mp4
+
+EXAMPLE 3: Fast real-time processing
+  python3 3_depth_sensing.py --resolution 640x480 --algorithm bm --fps
+
+EXAMPLE 4: Balanced quality and speed
+  python3 3_depth_sensing.py --resolution 1280x720 --algorithm sgbm --fps
+
+================================================================================
+
+Created: 2026-01-08
+Version: 1.0
+
+For complete documentation, see README.md
+
+================================================================================

@@ -1,0 +1,24 @@
+# YOLO AI Vision System - Python Dependencies
+# ============================================
+
+# Core dependencies
+opencv-python>=4.8.0
+numpy>=1.24.0,<2.0.0  # Pin to <2.0.0 for compatibility with TensorFlow/MediaPipe
+
+# Deep Learning (install PyTorch for Jetson separately)
+# See: https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# YOLO
+ultralytics>=8.0.0
+
+# Monitoring
+psutil>=5.9.0
+nvidia-ml-py>=12.0.0
+
+# Configuration
+pyyaml>=6.0
+
+# Utilities
+tqdm>=4.65.0
