@@ -63,13 +63,22 @@ def build_engine(onnx_path: str, engine_path: str, precision: str = 'fp16',
     
     print("✓ ONNX model parsed successfully")
     
-    # Configure builder
+    # Configure builder with optimized memory settings
     config = builder.create_builder_config()
-    # TensorRT 10.x uses memory_pool_limit instead of max_workspace_size
+
+    # Memory pool optimization for Jetson
     if hasattr(config, 'memory_pool_limit'):
-        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)  # 1GB
+        # TensorRT 10.x API
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)  # 1GB workspace
+        config.set_memory_pool_limit(trt.MemoryPoolType.DLA_MANAGED_SRAM, 1 << 30)  # DLA memory
+        config.set_memory_pool_limit(trt.MemoryPoolType.DLA_LOCAL_DRAM, 1 << 30)  # DLA DRAM
     elif hasattr(config, 'max_workspace_size'):
+        # Legacy API
         config.max_workspace_size = 1 << 30  # 1GB
+
+    # Performance optimizations
+    config.set_flag(trt.BuilderFlag.GPU_FALLBACK)  # Allow GPU fallback
+    config.set_flag(trt.BuilderFlag.DISABLE_TIMING_CACHE)  # Disable timing cache for consistency
     
     # Set precision
     if precision == 'fp16':

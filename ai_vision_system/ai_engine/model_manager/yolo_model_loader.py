@@ -85,7 +85,11 @@ class YOLOModelManager:
             print(f"Warning: Empty size, defaulting to 's'")
             size = 's'
         
-        model_name = f"yolov{version_num}{size}.pt"
+        # YOLO11 uses 'yolo11n.pt' format (no 'v'), others use 'yolov8n.pt'
+        if version_num == '11':
+            model_name = f"yolo{version_num}{size}.pt"
+        else:
+            model_name = f"yolov{version_num}{size}.pt"
         return model_name
     
     def _get_model_path(self, model_name: str) -> Path:

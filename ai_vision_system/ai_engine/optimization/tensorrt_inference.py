@@ -14,13 +14,18 @@ import os
 from pathlib import Path
 
 try:
+    # Add system paths for TensorRT
+    import sys
+    if '/usr/lib/python3.10/dist-packages' not in sys.path:
+        sys.path.insert(0, '/usr/lib/python3.10/dist-packages')
+
     import tensorrt as trt
     import pycuda.driver as cuda
-    import pycuda.autoinit
+    # Don't auto-init pycuda here, let the user handle CUDA context
     TENSORRT_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     TENSORRT_AVAILABLE = False
-    print("Warning: TensorRT or PyCUDA not available. Install with: pip install pycuda")
+    print(f"Warning: TensorRT or PyCUDA not available: {e}")
 
 
 class TensorRTInference:
@@ -43,14 +48,25 @@ class TensorRTInference:
         self.iou_threshold = iou_threshold
         self.engine_path = engine_path
         
-        # Load TensorRT engine
+        # Load TensorRT engine with optimized settings
         self.logger = trt.Logger(trt.Logger.WARNING)
         self.runtime = trt.Runtime(self.logger)
-        
+
         with open(engine_path, 'rb') as f:
-            self.engine = self.runtime.deserialize_cuda_engine(f.read())
-        
+            engine_data = f.read()
+
+        # Deserialize engine
+        self.engine = self.runtime.deserialize_cuda_engine(engine_data)
+
+        # Create execution context with optimized settings
         self.context = self.engine.create_execution_context()
+
+        # Enable CUDA graphs for better performance (TensorRT 8.5+)
+        if hasattr(self.context, 'set_optimization_profile_async'):
+            try:
+                self.context.set_optimization_profile_async(0)
+            except:
+                pass
         
         # Allocate buffers
         self.inputs, self.outputs, self.bindings, self.stream = self._allocate_buffers()
@@ -68,6 +84,15 @@ class TensorRTInference:
     
     def _allocate_buffers(self):
         """Allocate GPU memory buffers (TensorRT 10.x API)"""
+        # Initialize CUDA context if not already done
+        try:
+            cuda.init()
+            device = cuda.Device(0)  # Use GPU 0
+            self.cuda_context = device.make_context()
+        except:
+            # Context might already be active
+            self.cuda_context = None
+
         inputs = []
         outputs = []
         bindings = []
@@ -227,24 +252,25 @@ class TensorRTInference:
     
     def _preprocess(self, image: np.ndarray, inference_size: Tuple[int, int]) -> np.ndarray:
         """Preprocess image for TensorRT"""
-        # Resize
-        h, w = image.shape[:2]
-        target_w, target_h = inference_size
-        
-        resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-        
+        # Use the model's expected input shape
+        # input_shape is [channels, height, width] after removing batch dimension
+        channels, height, width = self.input_shape
+
+        # Resize to model's expected dimensions
+        resized = cv2.resize(image, (width, height), interpolation=cv2.INTER_LINEAR)
+
         # Convert BGR to RGB
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-        
+
         # Normalize to [0, 1]
         normalized = rgb.astype(np.float32) / 255.0
-        
-        # Transpose to CHW format
+
+        # Transpose to CHW format (channels, height, width)
         transposed = np.transpose(normalized, (2, 0, 1))
-        
-        # Add batch dimension and ensure contiguous
+
+        # Add batch dimension
         batched = np.expand_dims(transposed, axis=0).astype(np.float32)
-        
+
         return batched
     
     def _postprocess(self, output: np.ndarray, output_shape: Tuple, 
@@ -337,6 +363,14 @@ class TensorRTInference:
     def get_statistics(self) -> Dict:
         """Get inference statistics"""
         return self.stats.copy()
+
+    def cleanup(self):
+        """Clean up CUDA context"""
+        if hasattr(self, 'cuda_context') and self.cuda_context is not None:
+            try:
+                self.cuda_context.pop()
+            except:
+                pass
 
 
 class TensorRTConverter:

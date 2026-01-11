@@ -12,6 +12,7 @@ import argparse
 import yaml
 import numpy as np
 from pathlib import Path
+from typing import Optional
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -37,6 +38,11 @@ from video_processing.capture.gstreamer_capture import GStreamerDualCapture
 from video_processing.capture.nvargus_capture import NVArgusCapture
 from ai_engine.model_manager.yolo_model_loader import YOLOModelManager
 from ai_engine.inference.dual_yolo_inference import DualYOLOInference, ParallelDualInference
+try:
+    from ai_engine.inference.tensorrt_dual_inference import TensorRTDualInference
+    TENSORRT_AVAILABLE = True
+except ImportError:
+    TENSORRT_AVAILABLE = False
 from video_processing.postprocessing.yolo_postprocess import YOLOPostprocessor
 from video_processing.display.realtime_display import RealtimeDisplay, ViewMode
 from monitoring.metrics.performance_metrics import PerformanceMetrics
@@ -45,6 +51,11 @@ from monitoring.logging.system_logger import SystemLogger
 from monitoring.alerts.performance_alerts import PerformanceAlerts
 from monitoring.power_optimization import PerformanceBalancer
 from monitoring.detection_stats import DetectionStatistics
+try:
+    from ai_engine.processing.async_processor import AsyncFrameProcessor, AsyncPerformanceOptimizer
+    ASYNC_AVAILABLE = True
+except ImportError:
+    ASYNC_AVAILABLE = False
 
 
 class YOLOVisionSystem:
@@ -73,10 +84,39 @@ class YOLOVisionSystem:
         self.alerts = None
         self.balancer = None
         self.detection_stats = None  # Version 2: Detection statistics tracker
-        
+        self.async_processor = None  # Async processing for maximum performance
+        self.async_optimizer = None  # Performance optimizer
+
         self.running = False
         self.confidence_threshold = self.config.get('confidence_threshold', 0.25)
     
+    def _find_tensorrt_engine(self) -> Optional[str]:
+        """Find available TensorRT engine for current model configuration"""
+        model_config = self.config.get('model', {})
+        version = model_config.get('version', 'v8')
+        size = model_config.get('size', 'n')
+        engine_suffix = model_config.get('engine_suffix', '')
+
+        # Try with configured suffix first (for optimized engines like _320)
+        if version == 'v11':
+            engine_path = f"yolo11{size}{engine_suffix}.engine"
+            if Path(engine_path).exists():
+                return engine_path
+            # Fallback to default
+            engine_path = f"yolo11{size}.engine"
+            if Path(engine_path).exists():
+                return engine_path
+
+        # Try YOLOv8 as fallback
+        engine_path = f"yolov8{size}{engine_suffix}.engine"
+        if Path(engine_path).exists():
+            return engine_path
+        engine_path = f"yolov8{size}.engine"
+        if Path(engine_path).exists():
+            return engine_path
+
+        return None
+
     def _load_config(self, config_path: str = None) -> dict:
         """Load configuration from file"""
         # Check CUDA availability
@@ -168,26 +208,66 @@ class YOLOVisionSystem:
         print("✓ Model loaded")
         
         # Initialize parallel inference for better performance
-        inference_resolution = self.config.get('inference_resolution', [640, 480])
+        inference_resolution = self.config.get('inference_resolution', [640, 640])
         inference_size = tuple(inference_resolution) if isinstance(inference_resolution, list) else inference_resolution
-        
-        if self.config.get('use_parallel_inference', True):
-            self.inference = ParallelDualInference(
-                self.yolo_model,
-                confidence_threshold=self.confidence_threshold,
-                iou_threshold=self.config['iou_threshold'],
-                device=self.config['device'],
-                inference_size=inference_size
-            )
+
+        # Try TensorRT inference first (GPU acceleration)
+        tensorrt_engine = self._find_tensorrt_engine()
+        if tensorrt_engine and TENSORRT_AVAILABLE:
+            try:
+                print(f"Initializing TensorRT inference with: {tensorrt_engine}")
+                self.inference = TensorRTDualInference(
+                    tensorrt_engine,
+                    confidence_threshold=self.confidence_threshold,
+                    iou_threshold=self.config['iou_threshold'],
+                    inference_size=inference_size
+                )
+                print("✓ TensorRT GPU acceleration enabled!")
+            except Exception as e:
+                print(f"⚠ TensorRT initialization failed: {e}")
+                print("  Falling back to PyTorch inference...")
+                tensorrt_engine = None
+
+        if not tensorrt_engine or not TENSORRT_AVAILABLE:
+            # Fallback to PyTorch inference
+            if self.config.get('use_parallel_inference', True):
+                print("Initializing PyTorch parallel inference (CPU)...")
+                self.inference = ParallelDualInference(
+                    self.yolo_model,
+                    confidence_threshold=self.confidence_threshold,
+                    iou_threshold=self.config['iou_threshold'],
+                    device=self.config['device'],
+                    inference_size=inference_size
+                )
+            else:
+                # Fallback to sequential inference
+                print("Initializing PyTorch sequential inference (CPU)...")
+                self.inference = DualYOLOInference(
+                    self.yolo_model,
+                    confidence_threshold=self.confidence_threshold,
+                    iou_threshold=self.config['iou_threshold'],
+                    device=self.config['device']
+                )
+
+        # Initialize async processor for maximum performance
+        if ASYNC_AVAILABLE and self.config.get('use_async_processing', True):
+            try:
+                target_fps = self.config.get('target_fps', 30.0)
+                self.async_processor = AsyncFrameProcessor(
+                    camera_capture=None,  # Will be set after camera initialization
+                    inference_engine=self.inference,
+                    max_queue_size=2,
+                    target_fps=target_fps
+                )
+                self.async_optimizer = AsyncPerformanceOptimizer(self.async_processor)
+                print("✓ Async processor initialized for maximum performance")
+            except Exception as e:
+                print(f"⚠ Async processor initialization failed: {e}")
+                self.async_processor = None
+                self.async_optimizer = None
         else:
-            # Fallback to sequential inference
-            self.inference = DualYOLOInference(
-                self.yolo_model,
-                confidence_threshold=self.confidence_threshold,
-                iou_threshold=self.config['iou_threshold'],
-                device=self.config['device']
-            )
-        
+            print("Async processing not available or disabled")
+
         # Initialize postprocessor
         self.postprocessor = YOLOPostprocessor()
         
@@ -245,9 +325,25 @@ class YOLOVisionSystem:
         start_time = time.time()
         
         try:
+            # Start async processor if available
+            if self.async_processor and self.camera_capture:
+                self.async_processor.camera_capture = self.camera_capture
+                self.async_processor.start()
+                print("✓ Async processing started - camera capture and inference now run in parallel")
+
             while self.running:
-                # Capture frames
-                if self.camera_capture and self.camera_capture.running:
+                # Try async processing first if available
+                if self.async_processor and frame_count > 0:  # Let sync processing handle first frame
+                    result = self.async_processor.get_latest_result(timeout=0.01)
+                    if result:
+                        frame0, frame1, detections0, detections1, capture_time, process_time = result
+                        ret = True
+                        # Skip the synchronous processing below
+                        frame_count += 1
+                        # Continue with the rest of the processing loop
+                    else:
+                        ret = False
+                else:
                     ret, frame0, frame1 = self.camera_capture.read(timeout=2.0)
                     
                     # Print frame info on first successful read
