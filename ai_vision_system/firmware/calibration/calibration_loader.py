@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_CALIBRATION_PATH = PROJECT_ROOT / "depth_sensing" / "stereo_calibration.npz"
+
+
 class CalibrationLoader:
     """Load and manage camera calibration parameters"""
     
@@ -53,9 +57,8 @@ class CalibrationLoader:
         
         # Try default location if not found
         if not file_path.exists():
-            default_path = Path("/home/jetson/Downloads/IMX219_Camera_Project/depth_sensing/stereo_calibration.npz")
-            if default_path.exists():
-                file_path = default_path
+            if DEFAULT_CALIBRATION_PATH.exists():
+                file_path = DEFAULT_CALIBRATION_PATH
             else:
                 print(f"Warning: Calibration file not found: {calibration_file}")
                 return False
@@ -208,9 +211,8 @@ def main():
     loader = CalibrationLoader()
     
     # Try default location
-    default_path = "/home/jetson/Downloads/IMX219_Camera_Project/depth_sensing/stereo_calibration.npz"
-    if Path(default_path).exists():
-        if loader.load(default_path):
+    if DEFAULT_CALIBRATION_PATH.exists():
+        if loader.load(str(DEFAULT_CALIBRATION_PATH)):
             info = loader.get_calibration_info()
             print(f"\nCalibration Info:")
             print(f"  Loaded: {info['loaded']}")
@@ -222,7 +224,7 @@ def main():
             print("Failed to load calibration")
             return 1
     else:
-        print(f"Calibration file not found: {default_path}")
+        print(f"Calibration file not found: {DEFAULT_CALIBRATION_PATH}")
         print("Run calibration first if needed")
         return 0
 

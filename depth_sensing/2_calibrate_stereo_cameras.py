@@ -18,6 +18,7 @@ import os
 import glob
 import sys
 from datetime import datetime
+from pathlib import Path
 
 class StereoCalibrator:
     def __init__(self):
@@ -64,77 +65,107 @@ class StereoCalibrator:
             print("Run 1_capture_calibration_images.py first!")
             sys.exit(1)
         
-        if len(left_images) != len(right_images):
-            print(f"WARNING: Image count mismatch!")
-            print(f"  Left: {len(left_images)}, Right: {len(right_images)}")
-        
+        def pair_key(path, prefix):
+            name = Path(path).stem
+            expected_prefix = f"{prefix}_"
+            return name[len(expected_prefix):] if name.startswith(expected_prefix) else name
+
+        left_by_key = {pair_key(path, "left"): path for path in left_images}
+        right_by_key = {pair_key(path, "right"): path for path in right_images}
+        matched_keys = sorted(left_by_key.keys() & right_by_key.keys())
+        unmatched_left = sorted(left_by_key.keys() - right_by_key.keys())
+        unmatched_right = sorted(right_by_key.keys() - left_by_key.keys())
+
         print(f"✓ Found {len(left_images)} left images")
         print(f"✓ Found {len(right_images)} right images")
-        
-        return left_images, right_images
-    
-    def find_corners(self, images, camera_name):
-        """Find checkerboard corners in images"""
-        print(f"\nProcessing {camera_name} camera images...")
-        
-        objpoints = []  # 3D points in real world
-        imgpoints = []  # 2D points in image plane
-        
-        valid_count = 0
-        
-        for i, image_path in enumerate(images):
-            img = cv2.imread(image_path)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            
-            # Find checkerboard corners
-            ret, corners = cv2.findChessboardCorners(
-                gray,
-                self.pattern_size,
-                cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+        print(f"✓ Matched {len(matched_keys)} stereo pairs by filename")
+
+        if unmatched_left or unmatched_right:
+            print("WARNING: Ignoring unpaired calibration images:")
+            for key in unmatched_left:
+                print(f"  Left only:  {left_by_key[key]}")
+            for key in unmatched_right:
+                print(f"  Right only: {right_by_key[key]}")
+
+        if not matched_keys:
+            raise RuntimeError("No matching left/right calibration image pairs found")
+
+        return [(left_by_key[key], right_by_key[key]) for key in matched_keys]
+
+    def find_stereo_corners(self, image_pairs):
+        """Find checkerboard corners only in valid, matching stereo pairs."""
+        print("\nProcessing matched stereo image pairs...")
+
+        objpoints = []
+        imgpoints_left = []
+        imgpoints_right = []
+        img_size = None
+        flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+
+        for index, (left_path, right_path) in enumerate(image_pairs, start=1):
+            left = cv2.imread(left_path)
+            right = cv2.imread(right_path)
+            if left is None or right is None:
+                print(f"  {index}/{len(image_pairs)} ✗ (unreadable image)")
+                continue
+            if left.shape[:2] != right.shape[:2]:
+                print(f"  {index}/{len(image_pairs)} ✗ (left/right size mismatch)")
+                continue
+
+            pair_size = (left.shape[1], left.shape[0])
+            if img_size is None:
+                img_size = pair_size
+            elif pair_size != img_size:
+                print(f"  {index}/{len(image_pairs)} ✗ (inconsistent image size {pair_size})")
+                continue
+
+            gray_left = cv2.cvtColor(left, cv2.COLOR_BGR2GRAY)
+            gray_right = cv2.cvtColor(right, cv2.COLOR_BGR2GRAY)
+            found_left, corners_left = cv2.findChessboardCorners(
+                gray_left, self.pattern_size, flags
             )
-            
-            if ret:
-                # Refine corner positions to sub-pixel accuracy
-                corners_refined = cv2.cornerSubPix(
-                    gray, corners, (11, 11), (-1, -1), self.criteria
-                )
-                
-                objpoints.append(self.objp)
-                imgpoints.append(corners_refined)
-                valid_count += 1
-                print(f"  {i+1}/{len(images)} ✓")
-            else:
-                print(f"  {i+1}/{len(images)} ✗ (pattern not found)")
-        
-        print(f"✓ {camera_name}: {valid_count}/{len(images)} valid images")
-        
-        # Get image size from first image
-        img_size = (gray.shape[1], gray.shape[0])
-        
-        return objpoints, imgpoints, img_size, valid_count
+            found_right, corners_right = cv2.findChessboardCorners(
+                gray_right, self.pattern_size, flags
+            )
+
+            if not (found_left and found_right):
+                missing = []
+                if not found_left:
+                    missing.append("left")
+                if not found_right:
+                    missing.append("right")
+                print(f"  {index}/{len(image_pairs)} ✗ (pattern missing: {', '.join(missing)})")
+                continue
+
+            refined_left = cv2.cornerSubPix(
+                gray_left, corners_left, (11, 11), (-1, -1), self.criteria
+            )
+            refined_right = cv2.cornerSubPix(
+                gray_right, corners_right, (11, 11), (-1, -1), self.criteria
+            )
+            objpoints.append(self.objp.copy())
+            imgpoints_left.append(refined_left)
+            imgpoints_right.append(refined_right)
+            print(f"  {index}/{len(image_pairs)} ✓")
+
+        print(f"✓ Valid stereo pairs: {len(objpoints)}/{len(image_pairs)}")
+        if img_size is None:
+            raise RuntimeError("No readable, same-size stereo image pairs found")
+
+        return objpoints, imgpoints_left, imgpoints_right, img_size
     
     def calibrate_camera(self, objpoints, imgpoints, img_size, camera_name):
         """Calibrate individual camera"""
         print(f"\nCalibrating {camera_name} camera...")
         
-        ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
+        rms_error, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
             objpoints, imgpoints, img_size, None, None
         )
         
-        # Calculate reprojection error
-        mean_error = 0
-        for i in range(len(objpoints)):
-            imgpoints_projected, _ = cv2.projectPoints(
-                objpoints[i], rvecs[i], tvecs[i], camera_matrix, dist_coeffs
-            )
-            error = cv2.norm(imgpoints[i], imgpoints_projected, cv2.NORM_L2) / len(imgpoints_projected)
-            mean_error += error
-        mean_error /= len(objpoints)
-        
         print(f"✓ {camera_name} calibration complete")
-        print(f"  Reprojection error: {mean_error:.4f} pixels")
+        print(f"  RMS reprojection error: {rms_error:.4f} pixels")
         
-        return camera_matrix, dist_coeffs, mean_error
+        return camera_matrix, dist_coeffs, rms_error
     
     def stereo_calibrate(self, objpoints, imgpoints_left, imgpoints_right, 
                          camera_matrix_left, dist_left, camera_matrix_right, dist_right, img_size):
@@ -187,8 +218,10 @@ class StereoCalibrator:
             self.output_file,
             camera_matrix_left=camera_matrix_left,
             dist_left=dist_left,
+            dist_coeffs_left=dist_left,
             camera_matrix_right=camera_matrix_right,
             dist_right=dist_right,
+            dist_coeffs_right=dist_right,
             R=R,
             T=T,
             E=E,
@@ -200,12 +233,17 @@ class StereoCalibrator:
             Q=Q,
             roi_left=roi_left,
             roi_right=roi_right,
-            img_size=img_size
+            img_size=img_size,
+            pattern_size=self.pattern_size,
+            square_size_mm=self.square_size,
+            length_unit="mm",
+            calibration_timestamp=datetime.now().isoformat(timespec="seconds")
         )
         
         print(f"✓ Calibration saved")
     
-    def generate_report(self, error_left, error_right, stereo_error, T, baseline_mm):
+    def generate_report(self, error_left, error_right, stereo_error, T, baseline_mm,
+                        valid_pairs, total_pairs, img_size):
         """Generate calibration quality report"""
         print(f"\nGenerating calibration report...")
         
@@ -214,11 +252,15 @@ class StereoCalibrator:
         report.append("IMX219 Stereo Camera Calibration Report")
         report.append("=" * 70)
         report.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report.append(f"Image size: {img_size[0]}x{img_size[1]}")
+        report.append(f"Valid stereo pairs: {valid_pairs}/{total_pairs}")
+        report.append(f"Checkerboard: {self.pattern_size[0]}x{self.pattern_size[1]} internal corners")
+        report.append(f"Square size: {self.square_size:.2f} mm")
         report.append("")
         report.append("Calibration Quality:")
-        report.append(f"  Left camera reprojection error:   {error_left:.4f} pixels")
-        report.append(f"  Right camera reprojection error:  {error_right:.4f} pixels")
-        report.append(f"  Stereo reprojection error:        {stereo_error:.4f}")
+        report.append(f"  Left camera RMS reprojection error:  {error_left:.4f} pixels")
+        report.append(f"  Right camera RMS reprojection error: {error_right:.4f} pixels")
+        report.append(f"  Stereo RMS reprojection error:       {stereo_error:.4f} pixels")
         report.append("")
         report.append("Stereo Geometry:")
         report.append(f"  Baseline (distance between cameras): {baseline_mm:.2f} mm")
@@ -266,44 +308,29 @@ class StereoCalibrator:
         """Main calibration process"""
         try:
             # Load images
-            left_images, right_images = self.load_images()
-            
-            # Find corners in left images
-            objpoints_left, imgpoints_left, img_size, valid_left = self.find_corners(
-                left_images, "Left"
+            image_pairs = self.load_images()
+            objpoints, imgpoints_left, imgpoints_right, img_size = self.find_stereo_corners(
+                image_pairs
             )
-            
-            # Find corners in right images
-            objpoints_right, imgpoints_right, img_size_right, valid_right = self.find_corners(
-                right_images, "Right"
-            )
-            
-            # Ensure we have matching pairs
-            min_valid = min(valid_left, valid_right)
-            if min_valid < 10:
-                print(f"\nERROR: Not enough valid image pairs ({min_valid})")
+
+            if len(objpoints) < 10:
+                print(f"\nERROR: Not enough valid stereo pairs ({len(objpoints)})")
                 print("Capture at least 10 valid calibration images!")
                 sys.exit(1)
             
-            # Use same number of points for both cameras
-            objpoints_left = objpoints_left[:min_valid]
-            imgpoints_left = imgpoints_left[:min_valid]
-            objpoints_right = objpoints_right[:min_valid]
-            imgpoints_right = imgpoints_right[:min_valid]
-            
             # Calibrate left camera
             camera_matrix_left, dist_left, error_left = self.calibrate_camera(
-                objpoints_left, imgpoints_left, img_size, "Left"
+                objpoints, imgpoints_left, img_size, "Left"
             )
             
             # Calibrate right camera
             camera_matrix_right, dist_right, error_right = self.calibrate_camera(
-                objpoints_right, imgpoints_right, img_size, "Right"
+                objpoints, imgpoints_right, img_size, "Right"
             )
             
             # Stereo calibration
             R, T, E, F, R1, R2, P1, P2, Q, roi_left, roi_right, stereo_error = self.stereo_calibrate(
-                objpoints_left,
+                objpoints,
                 imgpoints_left,
                 imgpoints_right,
                 camera_matrix_left,
@@ -325,7 +352,10 @@ class StereoCalibrator:
             )
             
             # Generate report
-            self.generate_report(error_left, error_right, stereo_error, T, baseline_mm)
+            self.generate_report(
+                error_left, error_right, stereo_error, T, baseline_mm,
+                len(objpoints), len(image_pairs), img_size
+            )
             
             print("\n✓ Calibration complete!")
             print(f"\nCalibration file: {self.output_file}")

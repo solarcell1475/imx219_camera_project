@@ -1,6 +1,6 @@
 # IMX219-83 Stereo Camera Project
 
-**Project Folder:** `/home/jetson/Downloads/IMX219_Camera_Project/`  
+**Project Folder:** Use any clone location; commands below are run from the repository root.
 **Created:** 2026-01-08  
 **Camera:** Waveshare IMX219-83 Stereo Camera  
 **Platform:** Jetson Orin Nano
@@ -30,26 +30,33 @@ This project documents the setup, configuration, and testing of the Waveshare IM
 
 ## 🚀 Getting Started
 
-### First Time Setup (3 Steps)
+### First Time Setup
 
-1. **Activate the cameras:**
+These hardware steps must run on the Jetson, not on a development laptop.
+
+1. **Validate the existing Jetson-IO boot entry:**
    ```bash
-   cd /home/jetson
+   sudo ./activate_imx219_cameras.sh --check
+   ```
+
+2. **Select the validated camera boot entry:**
+   ```bash
    sudo ./activate_imx219_cameras.sh
    ```
 
-2. **Reboot your Jetson:**
+3. **Reboot your Jetson:**
    ```bash
    sudo reboot
    ```
 
-3. **Test the cameras:**
+4. **Run finite, headless diagnostics and dual-camera capture tests:**
    ```bash
-   cd /home/jetson
-   ./test_imx219_cameras.sh
+   ./test_imx219_cameras.sh --all
    ```
 
-That's it! Your cameras should now be working.
+The final `PASS: Both sensors produced concurrent finite streams.` result is the
+bring-up gate for later calibration and vision work. The presence of
+`/dev/video*` nodes alone does not prove that both NVArgus streams work.
 
 ---
 
@@ -89,8 +96,8 @@ That's it! Your cameras should now be working.
 **Requirements:** sudo privileges
 
 ### test_imx219_cameras.sh
-**Purpose:** Verify camera detection and provide test commands  
-**Usage:** `./test_imx219_cameras.sh`  
+**Purpose:** Diagnose the Jetson camera stack and run finite headless capture tests
+**Usage:** `./test_imx219_cameras.sh --all`
 **When to use:** After reboot to verify cameras are working  
 **Requirements:** Cameras must be activated first
 
@@ -120,10 +127,9 @@ python3 imx219_camera_test.py capture 0    # Capture image
 - ✅ Development log established
 
 ### Pending (Requires User Action)
-- ⏳ Run activation script with sudo
+- ⏳ Validate and run activation script with sudo on the Jetson
 - ⏳ Reboot system
-- ⏳ Verify camera detection
-- ⏳ Test camera functionality
+- ⏳ Pass sequential and concurrent NVArgus smoke tests
 - ⏳ Update development log with results
 
 ### Future Development
@@ -203,7 +209,7 @@ For more troubleshooting, see **IMX219_CAMERA_SETUP.md** → Troubleshooting sec
 
 ## 📝 Notes
 
-- All scripts are also available in `/home/jetson/` for easy access
+- Run scripts from the repository clone; no fixed checkout path is required
 - The activation script creates automatic backups of boot configuration
 - Cameras require proper hardware connection before software activation
 - For development history and detailed logs, always refer to `DEVELOPMENT_LOG.md`

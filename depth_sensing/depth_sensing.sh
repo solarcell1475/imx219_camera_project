@@ -17,6 +17,7 @@ NC='\033[0m' # No Color
 
 # Project directory
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$PROJECT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 # Banner
@@ -37,7 +38,7 @@ check_cameras() {
     else
         echo -e "${RED}✗ Cameras not detected!${NC}"
         echo -e "${YELLOW}Run camera activation script first:${NC}"
-        echo -e "  cd /home/jetson/Downloads/IMX219_Camera_Project"
+        echo -e "  cd \"$REPO_ROOT\""
         echo -e "  sudo ./activate_imx219_cameras.sh"
         echo -e "  sudo reboot"
         return 1

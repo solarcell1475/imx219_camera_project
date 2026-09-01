@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Setup GPU Environment for YOLO on Jetson
 # This script installs PyTorch with CUDA support for Jetson devices
 
@@ -21,9 +21,30 @@ CUDA_VERSION=$(nvcc --version | grep "release" | grep -o "[0-9]\+\.[0-9]\+" | he
 echo "CUDA version: $CUDA_VERSION"
 echo ""
 
-# Activate conda environment
+# Activate conda environment. CONDA_SH can override auto-discovery.
 echo "Activating conda environment: yolo_gpu"
-source /home/jetson/miniconda/etc/profile.d/conda.sh
+CONDA_SH="${CONDA_SH:-}"
+if [ -z "$CONDA_SH" ]; then
+    for candidate in \
+        "$HOME/miniconda3/etc/profile.d/conda.sh" \
+        "$HOME/miniconda/etc/profile.d/conda.sh" \
+        "$HOME/anaconda3/etc/profile.d/conda.sh" \
+        "/opt/conda/etc/profile.d/conda.sh"; do
+        if [ -f "$candidate" ]; then
+            CONDA_SH="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -z "$CONDA_SH" ] || [ ! -f "$CONDA_SH" ]; then
+    echo "Conda initialization script not found."
+    echo "Set CONDA_SH=/path/to/conda.sh and rerun this script."
+    exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$CONDA_SH"
 conda activate yolo_gpu
 
 # Check Python version

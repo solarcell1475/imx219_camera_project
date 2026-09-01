@@ -266,7 +266,7 @@ class HardwareTestSuite:
         report_text = "\n".join(report)
         
         # Save to file
-        output_path = Path("/home/jetson/Downloads/IMX219_Camera_Project/ai_vision_system/hardware/testing") / filename
+        output_path = Path(__file__).resolve().parent / filename
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(report_text)
         
